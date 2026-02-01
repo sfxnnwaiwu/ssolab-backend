@@ -1,13 +1,17 @@
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cache } from 'cache-manager';
+import { createHash, randomBytes } from 'crypto';
 import * as oidc from 'openid-client';
 import { v4 as uuidv4 } from 'uuid';
+import { ErrorAuthResult, OidcAuthResult } from '../session/interfaces/auth-result.interface';
 import { OidcConfigDto } from './dto/oidc-config.dto';
 import {
     OidcConfig,
     OidcConfigResponse,
     OidcDiscoveryDocument,
+    OidcStateData,
+    OidcTokens,
 } from './interfaces/oidc-config.interface';
 
 @Injectable()
@@ -16,26 +20,22 @@ export class OidcService {
     private readonly CONFIG_TTL = 900; // 15 minutes in seconds
     private readonly CONFIG_PREFIX = 'oidc:config:';
     private readonly DISCOVERY_PREFIX = 'oidc:discovery:';
+    private readonly STATE_PREFIX = 'oidc:state:';
+    private readonly STATE_TTL = 300; // 5 minutes for state/nonce
 
     constructor(@Inject(CACHE_MANAGER) private cacheManager: Cache) {}
 
     /**
      * Store OIDC configuration in Redis with 15-minute TTL
      * Validates discovery URL and fetches discovery document
-     * @param configDto OIDC configuration data
-     * @returns Configuration ID and expiration timestamp
      */
     async storeConfig(configDto: OidcConfigDto): Promise<OidcConfigResponse> {
-        // Fetch and validate discovery document
         const discoveryDocument = await this.fetchDiscoveryDocument(configDto.discoveryUrl);
 
-        // Validate required endpoints
         this.validateDiscoveryDocument(discoveryDocument);
 
-        // Generate unique config ID
         const configId = uuidv4();
 
-        // Prepare config data
         const config: OidcConfig = {
             clientId: configDto.clientId,
             clientSecret: configDto.clientSecret,
@@ -44,11 +44,9 @@ export class OidcService {
             responseType: configDto.responseType,
         };
 
-        // Store config in Redis with TTL
         const configKey = `${this.CONFIG_PREFIX}${configId}`;
         await this.cacheManager.set(configKey, JSON.stringify(config), this.CONFIG_TTL);
 
-        // Store discovery document in Redis with TTL
         const discoveryKey = `${this.DISCOVERY_PREFIX}${configId}`;
         await this.cacheManager.set(
             discoveryKey,
@@ -56,7 +54,6 @@ export class OidcService {
             this.CONFIG_TTL,
         );
 
-        // Calculate expiration time
         const expiresAt = new Date(Date.now() + this.CONFIG_TTL * 1000).toISOString();
 
         this.logger.log(`Stored OIDC configuration with ID: ${configId}`);
@@ -67,11 +64,6 @@ export class OidcService {
         };
     }
 
-    /**
-     * Retrieve OIDC configuration from Redis
-     * @param configId Configuration ID
-     * @returns OIDC configuration or null if not found
-     */
     async getConfig(configId: string): Promise<OidcConfig | null> {
         const key = `${this.CONFIG_PREFIX}${configId}`;
         const data = await this.cacheManager.get<string>(key);
@@ -83,11 +75,6 @@ export class OidcService {
         return JSON.parse(data) as OidcConfig;
     }
 
-    /**
-     * Retrieve discovery document from Redis
-     * @param configId Configuration ID
-     * @returns Discovery document or null if not found
-     */
     async getDiscoveryDocument(configId: string): Promise<OidcDiscoveryDocument | null> {
         const key = `${this.DISCOVERY_PREFIX}${configId}`;
         const data = await this.cacheManager.get<string>(key);
@@ -99,10 +86,6 @@ export class OidcService {
         return JSON.parse(data) as OidcDiscoveryDocument;
     }
 
-    /**
-     * Delete OIDC configuration from Redis
-     * @param configId Configuration ID
-     */
     async deleteConfig(configId: string): Promise<void> {
         const configKey = `${this.CONFIG_PREFIX}${configId}`;
         const discoveryKey = `${this.DISCOVERY_PREFIX}${configId}`;
@@ -110,19 +93,12 @@ export class OidcService {
         await this.cacheManager.del(discoveryKey);
     }
 
-    /**
-     * Fetch discovery document from OIDC provider
-     * @param discoveryUrl Discovery URL
-     * @returns Discovery document
-     */
     private async fetchDiscoveryDocument(discoveryUrl: string): Promise<OidcDiscoveryDocument> {
         try {
             this.logger.log(`Fetching discovery document from: ${discoveryUrl}`);
 
-            // Extract issuer URL from discovery URL
             const issuerUrl = discoveryUrl.replace('/.well-known/openid-configuration', '');
 
-            // Use openid-client to discover the configuration
             const configuration = await oidc.discovery(new URL(issuerUrl), issuerUrl);
 
             const metadata = configuration.serverMetadata();
@@ -172,10 +148,6 @@ export class OidcService {
         }
     }
 
-    /**
-     * Validate that discovery document contains required endpoints
-     * @param document Discovery document
-     */
     private validateDiscoveryDocument(document: OidcDiscoveryDocument): void {
         const requiredEndpoints = ['authorization_endpoint', 'token_endpoint', 'jwks_uri'];
         const missingEndpoints: string[] = [];
@@ -212,5 +184,416 @@ export class OidcService {
         }
 
         this.logger.log('Discovery document validation passed');
+    }
+
+    async generateAuthorizationUrl(configId: string): Promise<{
+        url: string;
+        state: string;
+        nonce: string;
+        codeVerifier?: string;
+    }> {
+        const config = await this.getConfig(configId);
+        if (!config) {
+            throw new NotFoundException({
+                type: 'config_not_found',
+                title: 'Configuration Not Found',
+                description: 'The OIDC configuration was not found or has expired',
+                technicalDetails: `Configuration ID: ${configId}`,
+                troubleshootingSteps: [
+                    'Verify the configuration ID is correct',
+                    'Check that the configuration has not expired (15-minute TTL)',
+                    'Re-submit the OIDC configuration to generate a new config ID',
+                    'Ensure Redis is running and accessible',
+                ],
+            });
+        }
+
+        const discoveryDocument = await this.getDiscoveryDocument(configId);
+        if (!discoveryDocument) {
+            throw new NotFoundException({
+                type: 'discovery_not_found',
+                title: 'Discovery Document Not Found',
+                description: 'The discovery document was not found in cache',
+                technicalDetails: `Configuration ID: ${configId}`,
+                troubleshootingSteps: [
+                    'Re-submit the OIDC configuration to fetch discovery document',
+                    'Verify Redis is storing data correctly',
+                ],
+            });
+        }
+
+        const state = this.generateRandomString(32);
+        const nonce = this.generateRandomString(32);
+
+        let codeVerifier: string | undefined;
+        let codeChallenge: string | undefined;
+        if (config.responseType.includes('code')) {
+            codeVerifier = this.generateRandomString(64);
+            codeChallenge = this.generateCodeChallenge(codeVerifier);
+        }
+
+        const stateData: OidcStateData = {
+            state,
+            nonce,
+            configId,
+            codeVerifier,
+        };
+        const stateKey = `${this.STATE_PREFIX}${state}`;
+        await this.cacheManager.set(stateKey, JSON.stringify(stateData), this.STATE_TTL);
+
+        const params = new URLSearchParams({
+            client_id: config.clientId,
+            response_type: config.responseType.join(' '),
+            scope: config.scopes.join(' '),
+            redirect_uri:
+                process.env.OIDC_CALLBACK_URL || 'http://localhost:3000/api/oidc/callback',
+            state,
+            nonce,
+        });
+
+        if (codeChallenge) {
+            params.append('code_challenge', codeChallenge);
+            params.append('code_challenge_method', 'S256');
+        }
+
+        const authorizationUrl = `${discoveryDocument.authorization_endpoint}?${params.toString()}`;
+
+        this.logger.log(`Generated authorization URL for config ${configId}`);
+
+        return { url: authorizationUrl, state, nonce, codeVerifier };
+    }
+
+    async handleCallback(code: string, state: string): Promise<OidcAuthResult | ErrorAuthResult> {
+        const requestStartTime = Date.now();
+
+        try {
+            const stateKey = `${this.STATE_PREFIX}${state}`;
+            const stateDataStr = await this.cacheManager.get<string>(stateKey);
+
+            if (!stateDataStr) {
+                return this.createErrorResult(
+                    'invalid_state',
+                    'Invalid State Parameter',
+                    'The state parameter is invalid or has expired',
+                    'State not found in cache',
+                    [
+                        'Ensure you are completing the flow within 5 minutes',
+                        'Verify the state parameter matches the one from the authorization request',
+                        'Check that Redis is working correctly',
+                        'Do not refresh the callback page, as state is single-use',
+                    ],
+                    requestStartTime,
+                );
+            }
+
+            const stateData: OidcStateData = JSON.parse(stateDataStr);
+
+            await this.cacheManager.del(stateKey);
+
+            const config = await this.getConfig(stateData.configId);
+            if (!config) {
+                return this.createErrorResult(
+                    'config_expired',
+                    'Configuration Expired',
+                    'The OIDC configuration has expired',
+                    `Configuration ID: ${stateData.configId}`,
+                    [
+                        'Re-submit the OIDC configuration to start a new flow',
+                        'Configuration has a 15-minute lifetime',
+                    ],
+                    requestStartTime,
+                );
+            }
+
+            const discoveryDocument = await this.getDiscoveryDocument(stateData.configId);
+            if (!discoveryDocument) {
+                return this.createErrorResult(
+                    'discovery_expired',
+                    'Discovery Document Expired',
+                    'The discovery document has expired',
+                    `Configuration ID: ${stateData.configId}`,
+                    ['Re-submit the OIDC configuration'],
+                    requestStartTime,
+                );
+            }
+
+            const tokenRequestStart = Date.now();
+            const tokens = await this.exchangeCodeForTokens(
+                code,
+                config,
+                discoveryDocument,
+                stateData.codeVerifier,
+            );
+            const tokenRequestDuration = Date.now() - tokenRequestStart;
+
+            const idTokenDecoded = await this.validateAndDecodeIdToken(
+                tokens.id_token,
+                config,
+                discoveryDocument,
+                stateData.nonce,
+            );
+
+            let accessTokenDecoded: any = undefined;
+            if (tokens.access_token && this.isJwt(tokens.access_token)) {
+                accessTokenDecoded = this.decodeJwt(tokens.access_token);
+            }
+
+            let refreshTokenDecoded: any = undefined;
+            if (tokens.refresh_token && this.isJwt(tokens.refresh_token)) {
+                refreshTokenDecoded = this.decodeJwt(tokens.refresh_token);
+            }
+
+            const authResult: OidcAuthResult = {
+                success: true,
+                timestamp: new Date().toISOString(),
+                tokens: {
+                    idToken: {
+                        raw: tokens.id_token,
+                        decoded: idTokenDecoded,
+                    },
+                    accessToken: {
+                        raw: tokens.access_token,
+                        decoded: accessTokenDecoded,
+                    },
+                    refreshToken: tokens.refresh_token
+                        ? {
+                              raw: tokens.refresh_token,
+                              decoded: refreshTokenDecoded,
+                          }
+                        : undefined,
+                    expiresIn: tokens.expires_in || 3600,
+                    tokenType: tokens.token_type || 'Bearer',
+                },
+                userClaims: idTokenDecoded.payload,
+                requestLog: {
+                    method: 'POST',
+                    url: discoveryDocument.token_endpoint,
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: '[REDACTED]',
+                    timestamp: new Date(tokenRequestStart).toISOString(),
+                    duration: tokenRequestDuration,
+                },
+                responseLog: {
+                    status: 200,
+                    statusText: 'OK',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: '[REDACTED - Contains sensitive tokens]',
+                    timestamp: new Date().toISOString(),
+                },
+            };
+
+            this.logger.log(`OIDC authentication successful for config ${stateData.configId}`);
+
+            return authResult;
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            this.logger.error(
+                `OIDC callback error: ${errorMessage}`,
+                error instanceof Error ? error.stack : undefined,
+            );
+
+            return this.createErrorResult(
+                'callback_error',
+                'OIDC Callback Error',
+                'An error occurred during the OIDC callback processing',
+                errorMessage,
+                [
+                    'Check the error details for specific information',
+                    'Verify the authorization code is valid',
+                    'Ensure the OIDC provider is accessible',
+                    'Check network connectivity',
+                ],
+                requestStartTime,
+            );
+        }
+    }
+
+    private async exchangeCodeForTokens(
+        code: string,
+        config: OidcConfig,
+        discoveryDocument: OidcDiscoveryDocument,
+        codeVerifier?: string,
+    ): Promise<OidcTokens> {
+        try {
+            const params = new URLSearchParams({
+                grant_type: 'authorization_code',
+                code,
+                redirect_uri:
+                    process.env.OIDC_CALLBACK_URL || 'http://localhost:3000/api/oidc/callback',
+                client_id: config.clientId,
+                client_secret: config.clientSecret,
+            });
+
+            if (codeVerifier) {
+                params.append('code_verifier', codeVerifier);
+            }
+
+            const response = await fetch(discoveryDocument.token_endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: params.toString(),
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                this.logger.error(`Token exchange failed: ${response.status} ${errorText}`);
+                throw new Error(`Token exchange failed: ${response.status} ${errorText}`);
+            }
+
+            const tokens: OidcTokens = await response.json();
+            return tokens;
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            this.logger.error(`Token exchange error: ${errorMessage}`);
+            throw new BadRequestException({
+                type: 'invalid_grant',
+                title: 'Token Exchange Failed',
+                description: 'Failed to exchange authorization code for tokens',
+                technicalDetails: errorMessage,
+                troubleshootingSteps: [
+                    'Verify the authorization code is valid and not expired',
+                    'Check that the client credentials are correct',
+                    'Ensure the redirect URI matches the one used in authorization',
+                    'Verify PKCE code verifier matches the challenge if applicable',
+                    'Check OIDC provider logs for detailed error information',
+                ],
+                relatedDocs: [
+                    {
+                        title: 'OAuth 2.0 Token Endpoint',
+                        url: 'https://datatracker.ietf.org/doc/html/rfc6749#section-3.2',
+                    },
+                ],
+            });
+        }
+    }
+
+    private async validateAndDecodeIdToken(
+        idToken: string,
+        config: OidcConfig,
+        discoveryDocument: OidcDiscoveryDocument,
+        expectedNonce: string,
+    ): Promise<{ header: any; payload: any; signature: string }> {
+        try {
+            const decoded = this.decodeJwt(idToken);
+            const claims = decoded.payload;
+
+            if (claims.iss !== discoveryDocument.issuer) {
+                throw new Error(
+                    `Invalid issuer: expected ${discoveryDocument.issuer}, got ${claims.iss}`,
+                );
+            }
+
+            const audience = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+            if (!audience.includes(config.clientId)) {
+                throw new Error(`Invalid audience: expected ${config.clientId}, got ${claims.aud}`);
+            }
+
+            if (claims.nonce !== expectedNonce) {
+                throw new Error(`Invalid nonce: expected ${expectedNonce}, got ${claims.nonce}`);
+            }
+
+            const now = Math.floor(Date.now() / 1000);
+            if (claims.exp && claims.exp < now) {
+                throw new Error(`Token has expired: exp=${claims.exp}, now=${now}`);
+            }
+
+            if (claims.nbf && claims.nbf > now) {
+                throw new Error(`Token not yet valid: nbf=${claims.nbf}, now=${now}`);
+            }
+
+            if (claims.iat && claims.iat > now + 60) {
+                throw new Error(`Token issued in the future: iat=${claims.iat}, now=${now}`);
+            }
+
+            this.logger.log('ID token validation successful');
+
+            return decoded;
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            this.logger.error(`ID token validation failed: ${errorMessage}`);
+            throw new BadRequestException({
+                type: 'invalid_token',
+                title: 'ID Token Validation Failed',
+                description: 'The ID token signature or claims are invalid',
+                technicalDetails: errorMessage,
+                troubleshootingSteps: [
+                    'Verify the ID token is from the expected issuer',
+                    'Check that the token has not expired',
+                    'Ensure the audience (aud) claim matches your client ID',
+                    'Verify the nonce matches the one sent in the authorization request',
+                    'Check that the JWKS endpoint is accessible and returning valid keys',
+                ],
+                relatedDocs: [
+                    {
+                        title: 'OpenID Connect ID Token Validation',
+                        url: 'https://openid.net/specs/openid-connect-core-1_0.html#IDTokenValidation',
+                    },
+                ],
+            });
+        }
+    }
+
+    private generateRandomString(length: number): string {
+        return randomBytes(length).toString('base64url').slice(0, length);
+    }
+
+    private generateCodeChallenge(verifier: string): string {
+        return createHash('sha256').update(verifier).digest('base64url');
+    }
+
+    private isJwt(token: string): boolean {
+        return token.split('.').length === 3;
+    }
+
+    private decodeJwt(token: string): { header: any; payload: any; signature: string } {
+        const parts = token.split('.');
+        if (parts.length !== 3) {
+            throw new Error('Invalid JWT format');
+        }
+
+        return {
+            header: JSON.parse(Buffer.from(parts[0], 'base64url').toString()),
+            payload: JSON.parse(Buffer.from(parts[1], 'base64url').toString()),
+            signature: parts[2],
+        };
+    }
+
+    private createErrorResult(
+        type: string,
+        title: string,
+        description: string,
+        technicalDetails: string,
+        troubleshootingSteps: string[],
+        requestStartTime: number,
+    ): ErrorAuthResult {
+        return {
+            success: false,
+            error: {
+                type,
+                title,
+                description,
+                technicalDetails,
+                troubleshootingSteps,
+            },
+            requestLog: {
+                method: 'GET',
+                url: '/api/oidc/callback',
+                headers: {},
+                timestamp: new Date(requestStartTime).toISOString(),
+                duration: Date.now() - requestStartTime,
+            },
+            responseLog: {
+                status: 400,
+                statusText: 'Bad Request',
+                headers: {},
+                timestamp: new Date().toISOString(),
+            },
+        };
     }
 }

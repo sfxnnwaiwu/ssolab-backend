@@ -24,3 +24,19 @@ export interface OidcDiscoveryDocument {
     token_endpoint_auth_methods_supported?: string[];
     [key: string]: any;
 }
+
+export interface OidcTokens {
+    access_token: string;
+    token_type: string;
+    expires_in?: number;
+    refresh_token?: string;
+    id_token: string;
+    scope?: string;
+}
+
+export interface OidcStateData {
+    state: string;
+    nonce: string;
+    configId: string;
+    codeVerifier?: string;
+}
