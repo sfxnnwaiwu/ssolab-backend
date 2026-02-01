@@ -7,6 +7,7 @@ import { AppService } from './app.service';
 import { AppConfigModule } from './config/app-config.nodule';
 import { getPinoHttpOptions } from './config/logger/pino-http-options';
 import { AppConfigService } from './config/service/app-config.service';
+import { OidcModule } from './modules/oidc/oidc.module';
 import { SamlModule } from './modules/saml/saml.module';
 import { SessionModule } from './modules/session/session.module';
 
@@ -39,6 +40,7 @@ import { SessionModule } from './modules/session/session.module';
         }),
         SamlModule,
         SessionModule,
+        OidcModule,
     ],
     controllers: [AppController],
     providers: [AppService],
