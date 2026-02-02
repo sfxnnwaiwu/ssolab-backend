@@ -11,6 +11,7 @@ import {
     UsePipes,
     ValidationPipe,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { SAML_ERROR_DETAILS } from '../../common/constants/saml-errors.constant';
 import { DetailedHttpException } from '../../common/exceptions/detailed-http.exception';
@@ -50,7 +51,7 @@ export class SamlController {
 
             // Redirect to IdP SSO URL with SAMLRequest
             return res.redirect(302, redirectUrl);
-        } catch (error) {
+        } catch {
             throw new DetailedHttpException(
                 SAML_ERROR_DETAILS.config_not_found,
                 HttpStatus.NOT_FOUND,
@@ -63,7 +64,8 @@ export class SamlController {
      * Handle SAML response from IdP
      */
     @Post('callback')
-    async callback(
+    @Throttle({ strict: { limit: 20, ttl: 900000 } }) // 20 requests per 15 minutes
+    callback(
         @Body('SAMLResponse') samlResponse: string,
         @Body('RelayState') relayState: string | undefined,
         @Req() req: Request,
@@ -76,7 +78,7 @@ export class SamlController {
             );
         }
 
-        const result = await this.samlService.validateSamlResponse(samlResponse, relayState);
+        const result = this.samlService.validateSamlResponse(samlResponse, relayState);
 
         // Store result in session
         req.session.authResult = result;

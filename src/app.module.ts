@@ -1,5 +1,7 @@
 import { CacheModule } from '@nestjs/cache-manager';
 import { Module, RequestMethod } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { redisStore } from 'cache-manager-redis-yet';
 import { LoggerModule } from 'nestjs-pino/LoggerModule';
 import { AppController } from './app.controller';
@@ -14,6 +16,18 @@ import { SessionModule } from './modules/session/session.module';
 @Module({
     imports: [
         AppConfigModule,
+        ThrottlerModule.forRoot([
+            {
+                name: 'default',
+                ttl: 60000, // 1 minute
+                limit: 100, // 100 requests per minute
+            },
+            {
+                name: 'strict',
+                ttl: 900000, // 15 minutes
+                limit: 20, // 20 requests per 15 minutes for login endpoints
+            },
+        ]),
         LoggerModule.forRootAsync({
             inject: [AppConfigService],
             useFactory: (config: AppConfigService) => ({
@@ -43,6 +57,12 @@ import { SessionModule } from './modules/session/session.module';
         OidcModule,
     ],
     controllers: [AppController],
-    providers: [AppService],
+    providers: [
+        AppService,
+        {
+            provide: APP_GUARD,
+            useClass: ThrottlerGuard,
+        },
+    ],
 })
 export class AppModule {}

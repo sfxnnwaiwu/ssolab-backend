@@ -11,6 +11,7 @@ import {
     Res,
     Session,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
 import { OIDC_ERROR_DETAILS } from '../../common/constants/oidc-errors.constant';
 import { DetailedHttpException } from '../../common/exceptions/detailed-http.exception';
@@ -88,6 +89,7 @@ export class OidcController {
      * GET /api/oidc/callback
      */
     @Get('callback')
+    @Throttle({ strict: { limit: 20, ttl: 900000 } }) // 20 requests per 15 minutes
     async callback(
         @Query('code') code: string,
         @Query('state') state: string,
