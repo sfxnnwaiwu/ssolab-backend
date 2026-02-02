@@ -4,6 +4,7 @@ import { Cache } from 'cache-manager';
 import { createHash, randomBytes } from 'crypto';
 import * as oidc from 'openid-client';
 import { v4 as uuidv4 } from 'uuid';
+import { OIDC_ERROR_DETAILS } from '../../common/constants/oidc-errors.constant';
 import { ErrorAuthResult, OidcAuthResult } from '../session/interfaces/auth-result.interface';
 import { OidcConfigDto } from './dto/oidc-config.dto';
 import {
@@ -273,15 +274,7 @@ export class OidcService {
             if (!stateDataStr) {
                 return this.createErrorResult(
                     'invalid_state',
-                    'Invalid State Parameter',
-                    'The state parameter is invalid or has expired',
                     'State not found in cache',
-                    [
-                        'Ensure you are completing the flow within 5 minutes',
-                        'Verify the state parameter matches the one from the authorization request',
-                        'Check that Redis is working correctly',
-                        'Do not refresh the callback page, as state is single-use',
-                    ],
                     requestStartTime,
                 );
             }
@@ -293,14 +286,8 @@ export class OidcService {
             const config = await this.getConfig(stateData.configId);
             if (!config) {
                 return this.createErrorResult(
-                    'config_expired',
-                    'Configuration Expired',
-                    'The OIDC configuration has expired',
+                    'config_not_found',
                     `Configuration ID: ${stateData.configId}`,
-                    [
-                        'Re-submit the OIDC configuration to start a new flow',
-                        'Configuration has a 15-minute lifetime',
-                    ],
                     requestStartTime,
                 );
             }
@@ -308,11 +295,8 @@ export class OidcService {
             const discoveryDocument = await this.getDiscoveryDocument(stateData.configId);
             if (!discoveryDocument) {
                 return this.createErrorResult(
-                    'discovery_expired',
-                    'Discovery Document Expired',
-                    'The discovery document has expired',
+                    'discovery_failed',
                     `Configuration ID: ${stateData.configId}`,
-                    ['Re-submit the OIDC configuration'],
                     requestStartTime,
                 );
             }
@@ -396,19 +380,25 @@ export class OidcService {
                 error instanceof Error ? error.stack : undefined,
             );
 
-            return this.createErrorResult(
-                'callback_error',
-                'OIDC Callback Error',
-                'An error occurred during the OIDC callback processing',
-                errorMessage,
-                [
-                    'Check the error details for specific information',
-                    'Verify the authorization code is valid',
-                    'Ensure the OIDC provider is accessible',
-                    'Check network connectivity',
-                ],
-                requestStartTime,
-            );
+            let errorType = 'callback_error';
+            if (errorMessage.toLowerCase().includes('invalid_grant')) {
+                errorType = 'invalid_grant';
+            } else if (
+                errorMessage.toLowerCase().includes('invalid_client') ||
+                errorMessage.toLowerCase().includes('client')
+            ) {
+                errorType = 'invalid_client';
+            } else if (errorMessage.toLowerCase().includes('nonce')) {
+                errorType = 'invalid_nonce';
+            } else if (errorMessage.toLowerCase().includes('issuer')) {
+                errorType = 'invalid_issuer';
+            } else if (errorMessage.toLowerCase().includes('audience')) {
+                errorType = 'invalid_audience';
+            } else if (errorMessage.toLowerCase().includes('expired')) {
+                errorType = 'token_expired';
+            }
+
+            return this.createErrorResult(errorType, errorMessage, requestStartTime);
         }
     }
 
@@ -565,21 +555,17 @@ export class OidcService {
     }
 
     private createErrorResult(
-        type: string,
-        title: string,
-        description: string,
-        technicalDetails: string,
-        troubleshootingSteps: string[],
+        errorType: string,
+        additionalDetails: string,
         requestStartTime: number,
     ): ErrorAuthResult {
+        const errorDetail = OIDC_ERROR_DETAILS[errorType] || OIDC_ERROR_DETAILS.callback_error;
+
         return {
             success: false,
             error: {
-                type,
-                title,
-                description,
-                technicalDetails,
-                troubleshootingSteps,
+                ...errorDetail,
+                technicalDetails: `${errorDetail.technicalDetails} ${additionalDetails}`,
             },
             requestLog: {
                 method: 'GET',

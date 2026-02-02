@@ -3,6 +3,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { SAML } from '@node-saml/node-saml';
 import { Cache } from 'cache-manager';
 import { v4 as uuidv4 } from 'uuid';
+import { SAML_ERROR_DETAILS } from '../../common/constants/saml-errors.constant';
 import { RequestLog, ResponseLog } from '../../common/interfaces/log.interface';
 import { SamlConfigDto } from './dto/saml-config.dto';
 import { SamlAuthResult, SamlErrorResult } from './interfaces/saml-auth-result.interface';
@@ -200,6 +201,25 @@ export class SamlService {
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             const errorStack = error instanceof Error ? error.stack : undefined;
+
+            let errorType = 'invalid_signature';
+            if (errorMessage.toLowerCase().includes('expired')) {
+                errorType = 'expired_assertion';
+            } else if (errorMessage.toLowerCase().includes('audience')) {
+                errorType = 'invalid_audience';
+            } else if (errorMessage.toLowerCase().includes('attribute')) {
+                errorType = 'missing_attributes';
+            } else if (errorMessage.toLowerCase().includes('certificate')) {
+                errorType = 'certificate_mismatch';
+            } else if (
+                errorMessage.toLowerCase().includes('parse') ||
+                errorMessage.toLowerCase().includes('format')
+            ) {
+                errorType = 'invalid_response_format';
+            } else if (errorMessage.toLowerCase().includes('destination')) {
+                errorType = 'invalid_destination';
+            }
+
             this.logger.error(`SAML response validation failed: ${errorMessage}`, errorStack);
 
             const responseLog: ResponseLog = {
@@ -209,27 +229,13 @@ export class SamlService {
                 timestamp: new Date().toISOString(),
             };
 
+            const errorDetails = SAML_ERROR_DETAILS[errorType];
             const errorResult: SamlErrorResult = {
                 success: false,
                 protocol: 'saml',
                 error: {
-                    type: 'invalid_signature',
-                    title: 'SAML Response Validation Failed',
-                    description: 'The SAML response could not be validated',
-                    technicalDetails: errorMessage,
-                    troubleshootingSteps: [
-                        'Verify the X.509 certificate matches the one configured in your IdP',
-                        'Ensure the certificate is in PEM format with proper headers',
-                        'Check that the certificate has not expired',
-                        'Confirm the IdP is signing assertions (not just responses)',
-                        'Validate that the signature algorithm is supported (RSA-SHA256)',
-                    ],
-                    relatedDocs: [
-                        {
-                            title: 'SAML 2.0 Signature Specification',
-                            url: 'https://docs.oasis-open.org/security/saml/v2.0/saml-metadata-2.0-os.pdf',
-                        },
-                    ],
+                    ...errorDetails,
+                    technicalDetails: `${errorDetails.technicalDetails} Original error: ${errorMessage}`,
                 },
                 requestLog,
                 responseLog,

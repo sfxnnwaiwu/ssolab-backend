@@ -5,6 +5,7 @@ import * as session from 'express-session';
 import { Logger, LoggerErrorInterceptor } from 'nestjs-pino';
 import { createClient } from 'redis';
 import { AppModule } from './app.module';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { AppConfigService } from './config/service/app-config.service';
 
 async function bootstrap() {
@@ -69,6 +70,8 @@ async function bootstrap() {
             },
         }),
     );
+
+    app.useGlobalFilters(new AllExceptionsFilter());
 
     const port = appConfigService.app.port ?? 3000;
 

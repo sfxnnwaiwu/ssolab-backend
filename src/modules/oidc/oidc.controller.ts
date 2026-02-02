@@ -12,6 +12,8 @@ import {
     Session,
 } from '@nestjs/common';
 import { Response } from 'express';
+import { OIDC_ERROR_DETAILS } from '../../common/constants/oidc-errors.constant';
+import { DetailedHttpException } from '../../common/exceptions/detailed-http.exception';
 import { ErrorAuthResult } from '../session/interfaces/auth-result.interface';
 import { SessionService } from '../session/session.service';
 import { OidcConfigDto } from './dto/oidc-config.dto';
@@ -74,10 +76,10 @@ export class OidcController {
             res.redirect(url);
         } catch (error) {
             this.logger.error('Failed to generate authorization URL', error);
-
-            // Redirect to frontend with error
-            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
-            res.redirect(`${frontendUrl}/oidc/callback?error=config_error`);
+            throw new DetailedHttpException(
+                OIDC_ERROR_DETAILS.config_not_found,
+                HttpStatus.NOT_FOUND,
+            );
         }
     }
 

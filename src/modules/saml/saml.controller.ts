@@ -4,7 +4,6 @@ import {
     Get,
     HttpCode,
     HttpStatus,
-    NotFoundException,
     Param,
     Post,
     Req,
@@ -13,6 +12,8 @@ import {
     ValidationPipe,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { SAML_ERROR_DETAILS } from '../../common/constants/saml-errors.constant';
+import { DetailedHttpException } from '../../common/exceptions/detailed-http.exception';
 import { SamlConfigDto } from './dto/saml-config.dto';
 import { SamlConfigResponse } from './interfaces/saml-config.interface';
 import { SamlService } from './saml.service';
@@ -50,7 +51,10 @@ export class SamlController {
             // Redirect to IdP SSO URL with SAMLRequest
             return res.redirect(302, redirectUrl);
         } catch (error) {
-            throw new NotFoundException(error.message);
+            throw new DetailedHttpException(
+                SAML_ERROR_DETAILS.config_not_found,
+                HttpStatus.NOT_FOUND,
+            );
         }
     }
 
@@ -65,6 +69,13 @@ export class SamlController {
         @Req() req: Request,
         @Res() res: Response,
     ) {
+        if (!samlResponse) {
+            throw new DetailedHttpException(
+                SAML_ERROR_DETAILS.saml_response_missing,
+                HttpStatus.BAD_REQUEST,
+            );
+        }
+
         const result = await this.samlService.validateSamlResponse(samlResponse, relayState);
 
         // Store result in session
