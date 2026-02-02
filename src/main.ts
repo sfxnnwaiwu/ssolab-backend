@@ -6,6 +6,7 @@ import { Logger, LoggerErrorInterceptor } from 'nestjs-pino';
 import { createClient } from 'redis';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { AppConfigService } from './config/service/app-config.service';
 
 async function bootstrap() {
@@ -14,6 +15,7 @@ async function bootstrap() {
     const logger = app.get(Logger);
     app.useLogger(logger);
     app.useGlobalInterceptors(new LoggerErrorInterceptor());
+    app.useGlobalInterceptors(new LoggingInterceptor());
 
     const appConfigService = app.get(AppConfigService);
 

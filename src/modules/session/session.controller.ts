@@ -26,6 +26,18 @@ export class SessionController {
     }
 
     /**
+     * GET /api/session/logs
+     * Retrieve HTTP request/response logs from session
+     */
+    @Get('logs')
+    getLogs(@Req() req: Request): unknown {
+        return {
+            logs: req.session.logs || [],
+            count: req.session.logs?.length || 0,
+        };
+    }
+
+    /**
      * DELETE /api/session/clear
      * Clear session data
      */
