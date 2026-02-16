@@ -7,6 +7,7 @@ export interface OidcConfig {
 }
 
 export interface OidcConfigResponse {
+    url: string;
     configId: string;
     expiresAt: string;
 }

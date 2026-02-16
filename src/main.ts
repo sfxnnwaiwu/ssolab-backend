@@ -1,6 +1,10 @@
+import { config } from 'dotenv';
+config();
+
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { RedisStore } from 'connect-redis';
+import * as cookieParser from 'cookie-parser';
 import { randomUUID } from 'crypto';
 import * as session from 'express-session';
 import helmet from 'helmet';
@@ -38,9 +42,15 @@ async function bootstrap() {
         }),
     );
 
+    // Configure cookie parser for JWT refresh tokens
+    app.use(cookieParser());
+
     // Configure CORS
     app.enableCors({
-        origin: process.env.FRONTEND_URL || 'http://localhost:4200',
+        origin: [
+            process.env.FRONTEND_URL || 'http://localhost:4200',
+            'https://percent-trusted-janet-functioning.trycloudflare.com',
+        ],
         credentials: true,
         methods: ['GET', 'POST', 'DELETE'],
         allowedHeaders: ['Content-Type', 'Authorization'],
@@ -67,7 +77,7 @@ async function bootstrap() {
     app.use(
         session({
             store: redisStore,
-            genid: () => randomUUID(), // Use crypto.randomUUID() for cryptographically secure session IDs
+            genid: () => randomUUID(),
             secret: process.env.SESSION_SECRET || 'your-secret-key-change-in-production',
             resave: false,
             saveUninitialized: false,
@@ -99,6 +109,7 @@ async function bootstrap() {
     await app.listen(port);
 
     logger.log(`🚀 SCIM Client Service running on http://localhost:${port}`);
+
     logger.log(`📚 API Documentation: http://0.0.0.0:${port}/docs`);
 }
 bootstrap().catch((error) => {

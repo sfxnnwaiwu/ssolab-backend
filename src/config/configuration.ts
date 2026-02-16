@@ -10,13 +10,13 @@ export class AppConfig {
         (process.env.NODE_ENV as AppEnvironmentEnum) || AppEnvironmentEnum.DEVELOPMENT;
 
     db: DbConfig = {
-        type: process.env.FIXIAM_DATABASE_TYPE as DbType,
-        host: process.env.FIXIAM_DATABASE_HOST as string,
+        type: process.env.DATABASE_TYPE as DbType,
+        host: process.env.DATABASE_HOST as string,
         port: parseInt(process.env.FIXIAM_DATABASE_PORT as string),
-        username: process.env.FIXIAM_DATABASE_USERNAME as string,
-        password: process.env.FIXIAM_DATABASE_PASSWORD as string,
-        databaseName: process.env.FIXIAM_DATABASE_NAME as string,
-        schema: process.env.FIXIAM_DATABASE_SCHEMA as string,
+        username: process.env.DATABASE_USERNAME as string,
+        password: process.env.DATABASE_PASSWORD as string,
+        databaseName: process.env.DATABASE_NAME as string,
+        schema: process.env.DATABASE_SCHEMA as string,
     };
 
     app: PortConfig = {

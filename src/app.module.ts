@@ -2,6 +2,7 @@ import { CacheModule } from '@nestjs/cache-manager';
 import { Module, RequestMethod } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { redisStore } from 'cache-manager-redis-yet';
 import { LoggerModule } from 'nestjs-pino/LoggerModule';
 import { AppController } from './app.controller';
@@ -9,6 +10,9 @@ import { AppService } from './app.service';
 import { AppConfigModule } from './config/app-config.nodule';
 import { getPinoHttpOptions } from './config/logger/pino-http-options';
 import { AppConfigService } from './config/service/app-config.service';
+import { TypeOrmConfigService } from './config/typeorm.config';
+import { AuthModule } from './modules/auth/auth.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { OidcModule } from './modules/oidc/oidc.module';
 import { SamlModule } from './modules/saml/saml.module';
 import { SessionModule } from './modules/session/session.module';
@@ -16,6 +20,10 @@ import { SessionModule } from './modules/session/session.module';
 @Module({
     imports: [
         AppConfigModule,
+        TypeOrmModule.forRootAsync({
+            imports: [AppConfigModule],
+            useClass: TypeOrmConfigService,
+        }),
         ThrottlerModule.forRoot([
             {
                 name: 'default',
@@ -52,9 +60,11 @@ import { SessionModule } from './modules/session/session.module';
                 };
             },
         }),
+        AuthModule,
         SamlModule,
-        SessionModule,
         OidcModule,
+        SessionModule,
+        DashboardModule,
     ],
     controllers: [AppController],
     providers: [

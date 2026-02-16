@@ -6,6 +6,7 @@ export interface SamlConfig {
 }
 
 export interface SamlConfigResponse {
+    url: string;
     configId: string;
     expiresAt: string;
 }

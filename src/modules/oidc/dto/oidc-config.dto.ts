@@ -1,7 +1,20 @@
-import { ArrayMinSize, IsArray, IsIn, IsNotEmpty, IsString, IsUrl, Matches } from 'class-validator';
+import {
+    ArrayMinSize,
+    IsArray,
+    IsIn,
+    IsNotEmpty,
+    IsOptional,
+    IsString,
+    IsUrl,
+    Matches,
+} from 'class-validator';
 import { ContainsOpenIdScope } from '../../../common/validators/scopes.validator';
 
 export class OidcConfigDto {
+    @IsOptional()
+    @IsString()
+    providerName?: string;
+
     @IsNotEmpty()
     @IsString()
     clientId: string;

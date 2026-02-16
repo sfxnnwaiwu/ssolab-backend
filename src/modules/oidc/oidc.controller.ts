@@ -8,13 +8,16 @@ import {
     Param,
     Post,
     Query,
+    Req,
     Res,
     Session,
+    UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { OIDC_ERROR_DETAILS } from '../../common/constants/oidc-errors.constant';
 import { DetailedHttpException } from '../../common/exceptions/detailed-http.exception';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ErrorAuthResult } from '../session/interfaces/auth-result.interface';
 import { SessionService } from '../session/session.service';
 import { OidcConfigDto } from './dto/oidc-config.dto';
@@ -36,14 +39,19 @@ export class OidcController {
      */
     @Post('config')
     @HttpCode(HttpStatus.CREATED)
-    async storeConfig(@Body() configDto: OidcConfigDto): Promise<OidcConfigResponse> {
+    @UseGuards(JwtAuthGuard)
+    async storeConfig(
+        @Body() configDto: OidcConfigDto,
+        @Req() req: Request,
+    ): Promise<OidcConfigResponse> {
+        const user = req.user as { id: string; email: string };
         this.logger.log('Received OIDC configuration request');
         this.logger.debug(`Client ID: ${configDto.clientId}`);
         this.logger.debug(`Discovery URL: ${configDto.discoveryUrl}`);
         this.logger.debug(`Scopes: ${configDto.scopes.join(', ')}`);
         this.logger.debug(`Response Types: ${configDto.responseType.join(', ')}`);
 
-        const response = await this.oidcService.storeConfig(configDto);
+        const response = await this.oidcService.storeConfig(configDto, user.id);
 
         this.logger.log(`OIDC configuration stored with ID: ${response.configId}`);
 
@@ -63,12 +71,24 @@ export class OidcController {
         this.logger.log(`Initiating OIDC login for config: ${configId}`);
 
         try {
+            // Verify configuration exists
+            const config = await this.oidcService.getConfig(configId);
+            if (!config) {
+                throw new DetailedHttpException(
+                    OIDC_ERROR_DETAILS.config_not_found,
+                    HttpStatus.NOT_FOUND,
+                );
+            }
+
             // Generate authorization URL with state and nonce
             const { url, state, nonce, codeVerifier } =
                 await this.oidcService.generateAuthorizationUrl(configId);
 
-            // Store state and nonce in session
+            // Store state, nonce, configId and userId in session
             this.sessionService.storeOidcState(session, state, nonce, configId, codeVerifier);
+            session.oidcConfigId = configId;
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+            session.oidcUserId = config.userId;
 
             this.logger.log(`Redirecting to IdP authorization endpoint`);
             this.logger.debug(`Authorization URL: ${url}`);
@@ -134,7 +154,7 @@ export class OidcController {
                 },
             };
 
-            this.sessionService.storeAuthResult(session, errorResult);
+            await this.sessionService.storeAuthResult(errorResult);
             this.sessionService.clearOidcState(session);
 
             res.redirect(`${frontendUrl}/oidc/callback?error=${error}`);
@@ -174,7 +194,7 @@ export class OidcController {
                 },
             };
 
-            this.sessionService.storeAuthResult(session, errorResult);
+            await this.sessionService.storeAuthResult(errorResult);
 
             res.redirect(`${frontendUrl}/oidc/callback?error=invalid_state`);
             return;
@@ -185,10 +205,22 @@ export class OidcController {
             const authResult = await this.oidcService.handleCallback(code, state);
 
             // Store authentication result in session
-            this.sessionService.storeAuthResult(session, authResult);
+            await this.sessionService.storeAuthResult(authResult);
 
-            // Clear OIDC state
+            // Get configId and userId from session (stored during login initiation)
+            const configId = session.oidcConfigId as string | undefined;
+            const userId = session.oidcUserId as string | undefined;
+
+            // Save test result to database if we have the metadata
+            if (configId && userId) {
+                // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+                await this.oidcService.saveTestResult(configId, userId, authResult);
+            }
+
+            // Clear OIDC state and metadata
             this.sessionService.clearOidcState(session);
+            delete session.oidcConfigId;
+            delete session.oidcUserId;
 
             if (authResult.success) {
                 this.logger.log('OIDC authentication successful');
@@ -228,7 +260,7 @@ export class OidcController {
                 },
             };
 
-            this.sessionService.storeAuthResult(session, errorResult);
+            await this.sessionService.storeAuthResult(errorResult);
             this.sessionService.clearOidcState(session);
 
             res.redirect(`${frontendUrl}/oidc/callback?error=callback_error`);

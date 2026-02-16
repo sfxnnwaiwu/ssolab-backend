@@ -5,19 +5,36 @@ import {
     HttpCode,
     HttpStatus,
     NotFoundException,
+    Query,
     Req,
     Res,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { SessionService } from './session.service';
 
 @Controller('api/session')
 export class SessionController {
+    constructor(private readonly sessionService: SessionService) {}
+
     /**
      * GET /api/session/auth-result
      * Retrieve authentication result from session
      */
     @Get('auth-result')
-    getAuthResult(@Req() req: Request): unknown {
+    async getAuthResult(
+        @Req() req: Request,
+        @Query('resultId') resultId?: string,
+    ): Promise<unknown> {
+        if (resultId) {
+            const result = await this.sessionService.getAuthResultById(resultId);
+
+            if (!result) {
+                throw new NotFoundException(`Authentication result not found for ID: ${resultId}`);
+            }
+
+            return result;
+        }
+
         if (!req.session.authResult) {
             throw new NotFoundException('No authentication result in session');
         }

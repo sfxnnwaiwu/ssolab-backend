@@ -1,12 +1,16 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
 import { Cache } from 'cache-manager';
 import { createHash, randomBytes } from 'crypto';
 import * as oidc from 'openid-client';
-import { v4 as uuidv4 } from 'uuid';
+import { Repository } from 'typeorm';
 import { OIDC_ERROR_DETAILS } from '../../common/constants/oidc-errors.constant';
 import { ErrorAuthResult, OidcAuthResult } from '../session/interfaces/auth-result.interface';
+import { ConfigType, TestResult } from '../test-results/entities/test-result.entity';
 import { OidcConfigDto } from './dto/oidc-config.dto';
+import { OidcConfiguration } from './entities/oidc-configuration.entity';
 import {
     OidcConfig,
     OidcConfigResponse,
@@ -18,62 +22,70 @@ import {
 @Injectable()
 export class OidcService {
     private readonly logger = new Logger(OidcService.name);
-    private readonly CONFIG_TTL = 900; // 15 minutes in seconds
-    private readonly CONFIG_PREFIX = 'oidc:config:';
     private readonly DISCOVERY_PREFIX = 'oidc:discovery:';
     private readonly STATE_PREFIX = 'oidc:state:';
     private readonly STATE_TTL = 300; // 5 minutes for state/nonce
+    private readonly DISCOVERY_TTL = 900; // 15 minutes for discovery doc cache
 
-    constructor(@Inject(CACHE_MANAGER) private cacheManager: Cache) {}
+    constructor(
+        @Inject(CACHE_MANAGER) private cacheManager: Cache,
+        @InjectRepository(OidcConfiguration)
+        private readonly oidcConfigRepository: Repository<OidcConfiguration>,
+        @InjectRepository(TestResult)
+        private readonly testResultRepository: Repository<TestResult>,
+    ) {}
 
     /**
-     * Store OIDC configuration in Redis with 15-minute TTL
+     * Store OIDC configuration in PostgreSQL database
      * Validates discovery URL and fetches discovery document
      */
-    async storeConfig(configDto: OidcConfigDto): Promise<OidcConfigResponse> {
+    async storeConfig(configDto: OidcConfigDto, userId: string): Promise<OidcConfigResponse> {
         const discoveryDocument = await this.fetchDiscoveryDocument(configDto.discoveryUrl);
 
         this.validateDiscoveryDocument(discoveryDocument);
 
-        const configId = uuidv4();
-
-        const config: OidcConfig = {
+        const config = this.oidcConfigRepository.create({
+            userId,
+            providerName: configDto.providerName || new URL(configDto.discoveryUrl).hostname,
+            issuer: discoveryDocument.issuer,
             clientId: configDto.clientId,
             clientSecret: configDto.clientSecret,
-            discoveryUrl: configDto.discoveryUrl,
-            scopes: configDto.scopes,
-            responseType: configDto.responseType,
-        };
+            scopes: configDto.scopes.join(' '),
+            protocol: 'OIDC',
+        });
 
-        const configKey = `${this.CONFIG_PREFIX}${configId}`;
-        await this.cacheManager.set(configKey, JSON.stringify(config), this.CONFIG_TTL);
+        const savedConfig = await this.oidcConfigRepository.save(config);
 
-        const discoveryKey = `${this.DISCOVERY_PREFIX}${configId}`;
+        // Cache discovery document with config ID as key (for subsequent login requests)
+        const discoveryKey = `${this.DISCOVERY_PREFIX}${savedConfig.id}`;
         await this.cacheManager.set(
             discoveryKey,
             JSON.stringify(discoveryDocument),
-            this.CONFIG_TTL,
+            this.DISCOVERY_TTL,
         );
 
-        const expiresAt = new Date(Date.now() + this.CONFIG_TTL * 1000).toISOString();
+        this.logger.log(`Stored OIDC configuration ${savedConfig.id} for user ${userId}`);
 
-        this.logger.log(`Stored OIDC configuration with ID: ${configId}`);
+        // Generate login URL for frontend redirect
+        const loginUrl = `/api/oidc/authorize/${savedConfig.id}`;
 
         return {
-            configId,
-            expiresAt,
+            url: loginUrl,
+            configId: savedConfig.id,
+            expiresAt: '', // No expiration for database-stored configs
         };
     }
 
-    async getConfig(configId: string): Promise<OidcConfig | null> {
-        const key = `${this.CONFIG_PREFIX}${configId}`;
-        const data = await this.cacheManager.get<string>(key);
+    async getConfig(configId: string): Promise<OidcConfiguration | null> {
+        return this.oidcConfigRepository.findOne({ where: { id: configId } });
+    }
 
-        if (!data) {
-            return null;
-        }
-
-        return JSON.parse(data) as OidcConfig;
+    /**
+     * Delete OIDC configuration from database
+     */
+    async deleteConfig(configId: string, userId: string): Promise<boolean> {
+        const result = await this.oidcConfigRepository.delete({ id: configId, userId });
+        return (result.affected ?? 0) > 0;
     }
 
     async getDiscoveryDocument(configId: string): Promise<OidcDiscoveryDocument | null> {
@@ -85,13 +97,6 @@ export class OidcService {
         }
 
         return JSON.parse(data) as OidcDiscoveryDocument;
-    }
-
-    async deleteConfig(configId: string): Promise<void> {
-        const configKey = `${this.CONFIG_PREFIX}${configId}`;
-        const discoveryKey = `${this.DISCOVERY_PREFIX}${configId}`;
-        await this.cacheManager.del(configKey);
-        await this.cacheManager.del(discoveryKey);
     }
 
     private async fetchDiscoveryDocument(discoveryUrl: string): Promise<OidcDiscoveryDocument> {
@@ -226,12 +231,10 @@ export class OidcService {
         const state = this.generateRandomString(32);
         const nonce = this.generateRandomString(32);
 
-        let codeVerifier: string | undefined;
-        let codeChallenge: string | undefined;
-        if (config.responseType.includes('code')) {
-            codeVerifier = this.generateRandomString(64);
-            codeChallenge = this.generateCodeChallenge(codeVerifier);
-        }
+        // Use authorization code flow
+        const responseType = 'code';
+        const codeVerifier = this.generateRandomString(64);
+        const codeChallenge = this.generateCodeChallenge(codeVerifier);
 
         const stateData: OidcStateData = {
             state,
@@ -244,8 +247,8 @@ export class OidcService {
 
         const params = new URLSearchParams({
             client_id: config.clientId,
-            response_type: config.responseType.join(' '),
-            scope: config.scopes.join(' '),
+            response_type: responseType,
+            scope: config.scopes,
             redirect_uri:
                 process.env.OIDC_CALLBACK_URL || 'http://localhost:3000/api/oidc/callback',
             state,
@@ -302,17 +305,25 @@ export class OidcService {
             }
 
             const tokenRequestStart = Date.now();
+            // Convert OidcConfiguration entity to OidcConfig interface
+            const oidcConfig: OidcConfig = {
+                clientId: config.clientId,
+                clientSecret: config.clientSecret,
+                discoveryUrl: '', // Not needed for token exchange
+                scopes: config.scopes.split(' '),
+                responseType: ['code'],
+            };
             const tokens = await this.exchangeCodeForTokens(
                 code,
-                config,
+                oidcConfig,
                 discoveryDocument,
                 stateData.codeVerifier,
             );
             const tokenRequestDuration = Date.now() - tokenRequestStart;
 
-            const idTokenDecoded = await this.validateAndDecodeIdToken(
+            const idTokenDecoded = this.validateAndDecodeIdToken(
                 tokens.id_token,
-                config,
+                oidcConfig,
                 discoveryDocument,
                 stateData.nonce,
             );
@@ -463,12 +474,12 @@ export class OidcService {
         }
     }
 
-    private async validateAndDecodeIdToken(
+    private validateAndDecodeIdToken(
         idToken: string,
         config: OidcConfig,
         discoveryDocument: OidcDiscoveryDocument,
         expectedNonce: string,
-    ): Promise<{ header: any; payload: any; signature: string }> {
+    ): { header: any; payload: any; signature: string } {
         try {
             const decoded = this.decodeJwt(idToken);
             const claims = decoded.payload;
@@ -581,5 +592,40 @@ export class OidcService {
                 timestamp: new Date().toISOString(),
             },
         };
+    }
+
+    /**
+     * Save OIDC test result to database
+     */
+    async saveTestResult(
+        configId: string,
+        userId: string,
+        result: OidcAuthResult | ErrorAuthResult,
+    ): Promise<void> {
+        const testResult = this.testResultRepository.create({
+            configurationId: configId,
+            configType: ConfigType.OIDC,
+            userId,
+            success: result.success,
+            error: !result.success ? result.error : null,
+            claims: result.success ? result.userClaims : null,
+            tokens: result.success
+                ? {
+                      accessToken: result.tokens.accessToken ? '***REDACTED***' : null,
+                      refreshToken: result.tokens.refreshToken ? '***REDACTED***' : null,
+                      idToken: result.tokens.idToken ? '***REDACTED***' : null,
+                      expiresIn: result.tokens.expiresIn,
+                  }
+                : null,
+        });
+
+        await this.testResultRepository.save(testResult);
+
+        // Update lastTestedAt timestamp on configuration
+        await this.oidcConfigRepository.update(configId, {
+            lastTestedAt: new Date(),
+        });
+
+        this.logger.log(`Saved test result for OIDC config ${configId}`);
     }
 }
