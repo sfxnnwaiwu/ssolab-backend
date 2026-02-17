@@ -32,7 +32,7 @@ COPY package.json pnpm-lock.yaml ./
 
 # Install pnpm and production dependencies only
 RUN npm install -g pnpm@9.15.4 && \
-    pnpm install --frozen-lockfile --prod
+    pnpm install --frozen-lockfile --prod && pnpm migration:run
 
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
