@@ -58,15 +58,18 @@ async function bootstrap() {
 
     // Configure Redis client for sessions
     const redisClient = createClient({
-        socket: {
-            host: appConfigService.redis.host,
-            port: appConfigService.redis.port,
-        },
-        password: appConfigService.redis.password || undefined,
+        // socket: {
+        //     host: appConfigService.redis.host,
+        //     port: appConfigService.redis.port,
+        // },
+        // password: appConfigService.redis.password || undefined,
+        url: process.env.REDIS_URL || 'redis://localhost:6379',
     });
 
-    redisClient.on('error', (err) => logger.error('Redis Client Error', err));
-    await redisClient.connect();
+    // redisClient.on('error', (err) => logger.error('Redis Client Error', err));
+    await redisClient.connect().catch((err) => {
+        logger.error('Redis Client Connection Error', err);
+    });
 
     // Configure session middleware
     const redisStore = new RedisStore({
