@@ -48,12 +48,13 @@ import { SessionModule } from './modules/session/session.module';
             inject: [AppConfigService],
             useFactory: async (config: AppConfigService) => {
                 const store = await redisStore({
-                    socket: {
-                        host: config.redis.host,
-                        port: config.redis.port,
-                    },
-                    password: config.redis.password || undefined,
-                    ttl: config.redis.ttl,
+                    // socket: {
+                    //     host: config.redis.host,
+                    //     port: config.redis.port,
+                    // },
+                    // password: config.redis.password || undefined,
+                    // ttl: config.redis.ttl,
+                    url: config.redis.url || 'redis://localhost:6379',
                 });
                 return {
                     store: () => store,

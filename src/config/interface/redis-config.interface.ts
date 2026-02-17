@@ -6,4 +6,5 @@ export interface RedisConfig {
     tls: boolean;
     max: number;
     ttl: number;
+    url: string;
 }

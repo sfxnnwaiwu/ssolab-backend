@@ -40,6 +40,7 @@ export class AppConfig {
         tls: process.env.REDIS_TLS === 'true',
         max: Number.parseInt(process.env.CACHE_MAX_ITEMS as string, 10) || 1000,
         ttl: Number.parseInt(process.env.CACHE_TTL as string, 10) || 60000,
+        url: process.env.REDIS_URL || 'redis://localhost:6379',
     };
 }
 
