@@ -47,10 +47,7 @@ async function bootstrap() {
 
     // Configure CORS
     app.enableCors({
-        origin: [
-            process.env.FRONTEND_URL || 'http://localhost:4200',
-            'https://ssolab-frontend.onrender.com',
-        ],
+        origin: [process.env.FRONTEND_URL || 'http://localhost:4200'],
         credentials: true,
         methods: ['GET', 'POST', 'DELETE'],
         allowedHeaders: ['Content-Type', 'Authorization'],
