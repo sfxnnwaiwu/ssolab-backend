@@ -32,7 +32,7 @@ COPY package.json pnpm-lock.yaml ./
 
 # Install pnpm and production dependencies only
 RUN npm install -g pnpm@9.15.4 && \
-    pnpm install --frozen-lockfile --prod && pnpm migration:run
+    pnpm install --frozen-lockfile --prod
 
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
@@ -51,4 +51,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "const port = process.env.PORT || 3000; require('http').get('http://127.0.0.1:' + port + '/health', (r) => r.statusCode === 200 ? process.exit(0) : process.exit(1)).on('error', () => process.exit(1));"
 
 # Start the application
-CMD ["node", "dist/main"]
+CMD ["sh", "-c", "pnpm migration:run && node dist/main"]
