@@ -215,7 +215,16 @@ export class SamlService {
             while ((attributeMatch = attributeRegex.exec(decodedResponse)) !== null) {
                 const attributeName = attributeMatch[1];
                 const attributeValue = attributeMatch[2];
-                userAttributes[attributeName] = attributeValue;
+
+                const existing = userAttributes[attributeName];
+
+                if (!existing) {
+                    userAttributes[attributeName] = attributeValue;
+                } else if (Array.isArray(existing)) {
+                    existing.push(attributeValue);
+                } else {
+                    userAttributes[attributeName] = [existing, attributeValue];
+                }
             }
 
             const responseLog: ResponseLog = {
