@@ -2,6 +2,7 @@ import {
     ConflictException,
     Injectable,
     InternalServerErrorException,
+    NotFoundException,
     UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -65,23 +66,22 @@ export class AuthService {
     async login(loginDto: LoginDto): Promise<AuthResponse> {
         const { email, password } = loginDto;
 
-        // Find user with password field
         const user = await this.userRepository.findOne({
             where: { email },
             select: ['id', 'email', 'name', 'password', 'createdAt', 'updatedAt'],
         });
 
         if (!user) {
-            throw new UnauthorizedException('Invalid credentials');
+            throw new NotFoundException(
+                `User with email ${email} not found - kindly sign up to use the service`,
+            );
         }
 
-        // Validate password
         const isPasswordValid = await user.validatePassword(password);
         if (!isPasswordValid) {
             throw new UnauthorizedException('Invalid credentials');
         }
 
-        // Generate tokens
         const tokens = this.generateTokens(user);
 
         return {
