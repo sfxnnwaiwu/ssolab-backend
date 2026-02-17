@@ -33,6 +33,7 @@ export class TypeOrmConfigService implements TypeOrmOptionsFactory {
             entities: [__dirname + '/../**/*.entity{.ts,.js}'],
             migrations: [__dirname + '/../migrations/*{.ts,.js}'],
             synchronize: false, // Always false for production - use migrations
+            migrationsRun: true,
             logging:
                 appConfig?.env === AppEnvironmentEnum.DEVELOPMENT
                     ? ['error', 'warn', 'migration']

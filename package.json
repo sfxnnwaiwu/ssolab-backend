@@ -21,7 +21,7 @@
         "typeorm": "typeorm-ts-node-commonjs",
         "migration:generate": "pnpm typeorm migration:generate -d src/config/data-source.ts",
         "migration:create": "pnpm typeorm migration:create",
-        "migration:run": "pnpm typeorm migration:run -d src/config/data-source.ts",
+        "migration:run": "pnpm typeorm -- migration:run -d src/config/data-source.ts",
         "migration:revert": "pnpm typeorm migration:revert -d src/config/data-source.ts",
         "migration:show": "pnpm typeorm migration:show -d src/config/data-source.ts"
     },
