@@ -4,24 +4,7 @@ import { tap, catchError } from 'rxjs/operators';
 import { v4 as uuidv4 } from 'uuid';
 import { Request, Response } from 'express';
 import { SensitiveDataRedactor } from '../utils/sensitive-data-redactor';
-
-export interface HttpLogEntry {
-    correlationId: string;
-    timestamp: string;
-    request: {
-        method: string;
-        url: string;
-        headers: Record<string, unknown>;
-        body?: Record<string, unknown>;
-        query?: Record<string, unknown>;
-    };
-    response: {
-        statusCode: number;
-        headers: Record<string, unknown>;
-        timestamp: string;
-    };
-    duration: number;
-}
+import { HttpLogEntry } from '../interfaces/http-log-entry.interface';
 
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
@@ -37,8 +20,7 @@ export class LoggingInterceptor implements NestInterceptor {
             (request.headers['x-request-id'] as string) ||
             uuidv4();
 
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-        (request as any).correlationId = correlationId;
+        request.correlationId = correlationId;
         response.setHeader('X-Correlation-ID', correlationId);
 
         const startTime = Date.now();
@@ -49,12 +31,9 @@ export class LoggingInterceptor implements NestInterceptor {
             timestamp: requestTimestamp,
             method: request.method,
             url: request.url,
-            headers: SensitiveDataRedactor.redactHeaders(request.headers) as Record<
-                string,
-                unknown
-            >,
+            headers: SensitiveDataRedactor.redactHeaders(request.headers),
             body: request.body
-                ? (SensitiveDataRedactor.redact(request.body) as Record<string, unknown>)
+                ? SensitiveDataRedactor.redact(request.body as Record<string, unknown>)
                 : undefined,
             query: request.query
                 ? (SensitiveDataRedactor.redact(request.query) as Record<string, unknown>)
@@ -78,10 +57,7 @@ export class LoggingInterceptor implements NestInterceptor {
                     url: request.url,
                     statusCode: response.statusCode,
                     duration,
-                    headers: SensitiveDataRedactor.redactHeaders(response.getHeaders()) as Record<
-                        string,
-                        unknown
-                    >,
+                    headers: SensitiveDataRedactor.redactHeaders(response.getHeaders()),
                 };
 
                 this.logger.log({
@@ -95,15 +71,9 @@ export class LoggingInterceptor implements NestInterceptor {
                     request: {
                         method: request.method,
                         url: request.url,
-                        headers: SensitiveDataRedactor.redactHeaders(request.headers) as Record<
-                            string,
-                            unknown
-                        >,
+                        headers: SensitiveDataRedactor.redactHeaders(request.headers),
                         body: request.body
-                            ? (SensitiveDataRedactor.redact(request.body) as Record<
-                                  string,
-                                  unknown
-                              >)
+                            ? SensitiveDataRedactor.redact(request.body as Record<string, unknown>)
                             : undefined,
                         query: request.query
                             ? (SensitiveDataRedactor.redact(request.query) as Record<
@@ -114,9 +84,7 @@ export class LoggingInterceptor implements NestInterceptor {
                     },
                     response: {
                         statusCode: response.statusCode,
-                        headers: SensitiveDataRedactor.redactHeaders(
-                            response.getHeaders(),
-                        ) as Record<string, unknown>,
+                        headers: SensitiveDataRedactor.redactHeaders(response.getHeaders()),
                         timestamp: responseTimestamp,
                     },
                     duration,
@@ -148,15 +116,9 @@ export class LoggingInterceptor implements NestInterceptor {
                     request: {
                         method: request.method,
                         url: request.url,
-                        headers: SensitiveDataRedactor.redactHeaders(request.headers) as Record<
-                            string,
-                            unknown
-                        >,
+                        headers: SensitiveDataRedactor.redactHeaders(request.headers),
                         body: request.body
-                            ? (SensitiveDataRedactor.redact(request.body) as Record<
-                                  string,
-                                  unknown
-                              >)
+                            ? SensitiveDataRedactor.redact(request.body as Record<string, unknown>)
                             : undefined,
                         query: request.query
                             ? (SensitiveDataRedactor.redact(request.query) as Record<

@@ -9,17 +9,42 @@ import {
     Req,
     Res,
 } from '@nestjs/common';
+import {
+    ApiNoContentResponse,
+    ApiOkResponse,
+    ApiOperation,
+    ApiQuery,
+    ApiResponse,
+    ApiTags,
+} from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { SessionService } from './session.service';
 
+@ApiTags('Session')
 @Controller('api/session')
 export class SessionController {
     constructor(private readonly sessionService: SessionService) {}
 
-    /**
-     * GET /api/session/auth-result
-     * Retrieve authentication result from session
-     */
+    @ApiOperation({
+        summary: 'Get authentication result from session',
+        description: 'Retrieve the authentication result stored in session after OIDC or SAML flow',
+    })
+    @ApiQuery({
+        name: 'resultId',
+        description: 'Optional result ID to fetch a specific authentication result',
+        required: false,
+        example: 'result_123456',
+    })
+    @ApiOkResponse({
+        description: 'Authentication result found',
+        schema: {
+            type: 'object',
+        },
+    })
+    @ApiResponse({
+        status: 404,
+        description: 'No authentication result found in session or with given ID',
+    })
     @Get('auth-result')
     async getAuthResult(
         @Req() req: Request,
@@ -42,10 +67,26 @@ export class SessionController {
         return req.session.authResult;
     }
 
-    /**
-     * GET /api/session/logs
-     * Retrieve HTTP request/response logs from session
-     */
+    @ApiOperation({
+        summary: 'Get HTTP request/response logs',
+        description: 'Retrieve HTTP request and response logs captured during authentication flow',
+    })
+    @ApiOkResponse({
+        description: 'HTTP logs retrieved successfully',
+        schema: {
+            properties: {
+                logs: {
+                    type: 'array',
+                    description: 'Array of HTTP log entries',
+                },
+                count: {
+                    type: 'number',
+                    description: 'Number of log entries',
+                    example: 5,
+                },
+            },
+        },
+    })
     @Get('logs')
     getLogs(@Req() req: Request): unknown {
         return {
@@ -54,10 +95,17 @@ export class SessionController {
         };
     }
 
-    /**
-     * DELETE /api/session/clear
-     * Clear session data
-     */
+    @ApiOperation({
+        summary: 'Clear session data',
+        description: 'Destroy session and remove all stored authentication and session data',
+    })
+    @ApiNoContentResponse({
+        description: 'Session cleared successfully',
+    })
+    @ApiResponse({
+        status: 500,
+        description: 'Failed to clear session',
+    })
     @Delete('clear')
     @HttpCode(HttpStatus.NO_CONTENT)
     clearSession(@Req() req: Request, @Res() res: Response) {

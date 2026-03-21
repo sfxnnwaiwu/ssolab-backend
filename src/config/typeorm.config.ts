@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModuleOptions, TypeOrmOptionsFactory } from '@nestjs/typeorm';
 import { AppConfig } from './configuration';
@@ -6,6 +6,8 @@ import { AppEnvironmentEnum } from './enum/app-environment.enum';
 
 @Injectable()
 export class TypeOrmConfigService implements TypeOrmOptionsFactory {
+    private readonly logger = new Logger(TypeOrmConfigService.name);
+
     constructor(private configService: ConfigService) {}
 
     createTypeOrmOptions(): TypeOrmModuleOptions {
@@ -16,11 +18,11 @@ export class TypeOrmConfigService implements TypeOrmOptionsFactory {
             throw new Error('Database configuration is missing');
         }
 
-        console.log('TypeORM Config - Database Host:', dbConfig.host);
-        console.log('TypeORM Config - Database Port:', dbConfig.port);
-        console.log('TypeORM Config - Database Username:', dbConfig.username);
-        console.log('TypeORM Config - Database Name:', dbConfig.databaseName);
-        console.log('TypeORM Config - Database Schema:', dbConfig.schema);
+        this.logger.log('TypeORM Config - Database Host:', dbConfig.host);
+        this.logger.log(`TypeORM Config - Database Port: ${appConfig.app.port}`);
+        this.logger.log('TypeORM Config - Database Username:', dbConfig.username);
+        this.logger.log('TypeORM Config - Database Name:', dbConfig.databaseName);
+        this.logger.log('TypeORM Config - Database Schema:', dbConfig.schema);
 
         return {
             type: (dbConfig.type || 'postgres') as 'postgres',
@@ -32,7 +34,7 @@ export class TypeOrmConfigService implements TypeOrmOptionsFactory {
             schema: dbConfig.schema || 'public',
             entities: [__dirname + '/../**/*.entity{.ts,.js}'],
             migrations: [__dirname + '/../migrations/*{.ts,.js}'],
-            synchronize: false, // Always false for production - use migrations
+            synchronize: false,
             migrationsRun: true,
             logging:
                 appConfig?.env === AppEnvironmentEnum.DEVELOPMENT

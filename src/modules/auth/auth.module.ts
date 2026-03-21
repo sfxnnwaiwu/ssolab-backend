@@ -15,7 +15,7 @@ import { LocalStrategy } from './strategies/local.strategy';
         PassportModule.register({ defaultStrategy: 'jwt' }),
         JwtModule.registerAsync({
             imports: [ConfigModule],
-            useFactory: async (configService: ConfigService) => ({
+            useFactory: (configService: ConfigService) => ({
                 secret: configService.get<string>('JWT_SECRET'),
                 // Don't set default expiresIn - we'll pass it when signing
             }),

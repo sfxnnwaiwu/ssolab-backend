@@ -33,6 +33,9 @@ export class SamlConfiguration {
     @Column({ name: 'sso_url', type: 'text' })
     ssoUrl: string;
 
+    @Column({ name: 'slo_url', type: 'text', nullable: true })
+    sloUrl: string | null;
+
     @Column({ name: 'certificate', type: 'text' })
     certificate: string;
 

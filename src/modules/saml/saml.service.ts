@@ -34,7 +34,6 @@ export class SamlService {
      * @returns Configuration ID and metadata
      */
     async storeConfig(configDto: SamlConfigDto, userId: string): Promise<SamlConfigResponse> {
-        // Create new configuration entity
         const existingConfig = await this.samlConfigRepository.findOne({
             where: { userId, idpName: configDto.idpName },
         });
@@ -43,7 +42,7 @@ export class SamlService {
             this.logger.warn(
                 `User ${userId} already has a configuration for IdP ${configDto.idpName}. It will be overwritten.`,
             );
-            // update existing config instead of creating a new one to preserve createdAt timestamp and avoid duplicates
+
             await this.samlConfigRepository.update(existingConfig.id, {
                 entityId: configDto.entityId,
                 ssoUrl: configDto.ssoUrl,
@@ -59,15 +58,9 @@ export class SamlService {
             return {
                 url: loginUrl,
                 configId: existingConfig.id,
-                expiresAt: '', // No expiration for database-stored configs
+                expiresAt: '',
             };
         }
-
-        // .then((existingConfig) => {
-        // if (existingConfig) {
-        //     this.logger.warn(`User ${userId} already has a configuration for IdP ${configDto.idpName}. It will be overwritten.`);
-        //     return this.samlConfigRepository.delete(existingConfig.id);
-        // });
 
         const config = this.samlConfigRepository.create({
             userId,
@@ -78,12 +71,10 @@ export class SamlService {
             protocol: 'SAML',
         });
 
-        // Save to database
         const savedConfig = await this.samlConfigRepository.save(config);
 
         this.logger.log(`Stored SAML configuration ${savedConfig.id} for user ${userId}`);
 
-        // Generate login URL for frontend redirect
         const loginUrl = `${process.env.BACKEND_BASE_URL}/api/saml/login/${savedConfig.id}`;
 
         console.log(`Generated login URL for SAML config ${savedConfig.id}: ${loginUrl}`);
@@ -91,7 +82,7 @@ export class SamlService {
         return {
             url: loginUrl,
             configId: savedConfig.id,
-            expiresAt: '', // No expiration for database-stored configs
+            expiresAt: '',
         };
     }
 
@@ -331,5 +322,82 @@ export class SamlService {
         });
 
         this.logger.log(`Saved test result for SAML config ${configId}`);
+    }
+
+    /**
+     * Generate SAML LogoutRequest XML
+     * @param nameId SAML NameID from authentication response
+     * @param sessionIndex Session index from authentication response
+     * @param issuer Service provider entity ID
+     * @returns SAML LogoutRequest XML
+     */
+    generateLogoutRequest(nameId: string, sessionIndex: string, issuer: string): string {
+        const requestId = `_${Math.random().toString(36).substr(2, 9)}`;
+        const issueInstant = new Date().toISOString();
+
+        const logoutRequest = `<?xml version="1.0" encoding="UTF-8"?>
+<samlp:LogoutRequest xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="${requestId}" Version="2.0" IssueInstant="${issueInstant}" Destination="${issuer}">
+  <saml:Issuer Format="urn:oasis:names:tc:SAML:2.0:nameid-format:entity">${this.escapeXml(issuer)}</saml:Issuer>
+  <saml:NameID Format="urn:oasis:names:tc:SAML:2.0:nameid-format:transient">${this.escapeXml(nameId)}</saml:NameID>
+  <samlp:SessionIndex>${this.escapeXml(sessionIndex)}</samlp:SessionIndex>
+</samlp:LogoutRequest>`;
+
+        return logoutRequest;
+    }
+
+    /**
+     * Validate SAML LogoutResponse from IdP
+     * @param logoutResponse Base64 encoded LogoutResponse
+     * @returns Validation result
+     */
+    validateLogoutResponse(logoutResponse: string): boolean {
+        try {
+            if (!logoutResponse) {
+                this.logger.warn('LogoutResponse is empty or missing');
+                return false;
+            }
+
+            // Decode base64
+            const decodedResponse = Buffer.from(logoutResponse, 'base64').toString('utf-8');
+
+            this.logger.debug(`Decoded LogoutResponse: ${decodedResponse.substring(0, 200)}...`);
+
+            // Check for StatusCode Success
+            const statusSuccess =
+                decodedResponse.includes('urn:oasis:names:tc:SAML:2.0:status:Success') ||
+                decodedResponse.includes(
+                    'StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"',
+                );
+
+            if (statusSuccess) {
+                this.logger.log('LogoutResponse validation successful');
+                return true;
+            } else {
+                this.logger.warn('LogoutResponse indicates failure or non-success status');
+                return false;
+            }
+        } catch (error) {
+            this.logger.error(
+                `Error validating LogoutResponse: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            );
+            return false;
+        }
+    }
+
+    /**
+     * Escape XML special characters
+     * @param value String to escape
+     * @returns Escaped string
+     */
+    private escapeXml(value: string): string {
+        const xmlEscapeMap: Record<string, string> = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&apos;',
+        };
+
+        return value.replace(/[&<>"']/g, (char) => xmlEscapeMap[char]);
     }
 }

@@ -27,16 +27,21 @@ export class SensitiveDataRedactor {
      * @param obj Object to redact
      * @returns New object with sensitive fields redacted
      */
-    static redact(obj: any): any {
+    static redact(obj: Record<string, unknown> | unknown[]): Record<string, unknown> | unknown[] {
         if (!obj || typeof obj !== 'object') {
             return obj;
         }
 
         if (Array.isArray(obj)) {
-            return obj.map((item) => this.redact(item));
+            return obj.map((item) => {
+                if (item && typeof item === 'object') {
+                    return this.redact(item as Record<string, unknown>);
+                }
+                return item;
+            });
         }
 
-        const redacted: any = {};
+        const redacted: Record<string, unknown> = {};
 
         for (const [key, value] of Object.entries(obj)) {
             const lowerKey = key.toLowerCase();
@@ -59,7 +64,7 @@ export class SensitiveDataRedactor {
 
             // Recursively redact nested objects
             if (value && typeof value === 'object') {
-                redacted[key] = this.redact(value);
+                redacted[key] = this.redact(value as Record<string, unknown>);
             } else {
                 redacted[key] = value;
             }
@@ -73,12 +78,12 @@ export class SensitiveDataRedactor {
      * @param headers Headers object
      * @returns Redacted headers object
      */
-    static redactHeaders(headers: any): any {
-        if (!headers) {
+    static redactHeaders(headers: Record<string, unknown>): Record<string, unknown> {
+        if (!headers || typeof headers !== 'object' || Array.isArray(headers)) {
             return {};
         }
 
-        const redacted: any = {};
+        const redacted: Record<string, unknown> = {};
 
         for (const [key, value] of Object.entries(headers)) {
             const lowerKey = key.toLowerCase();

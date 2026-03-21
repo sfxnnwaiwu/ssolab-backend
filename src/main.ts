@@ -3,6 +3,7 @@ config();
 
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { RedisStore } from 'connect-redis';
 import * as cookieParser from 'cookie-parser';
 import { randomUUID } from 'crypto';
@@ -83,10 +84,10 @@ async function bootstrap() {
             saveUninitialized: false,
             name: process.env.SESSION_COOKIE_NAME || 'connect.sid',
             cookie: {
-                httpOnly: true, // Always true for security
-                secure: process.env.NODE_ENV === 'production', // true in production
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
                 sameSite: 'lax',
-                maxAge: 30 * 60 * 1000, // 30 minutes
+                maxAge: 30 * 60 * 1000,
             },
         }),
     );
@@ -104,13 +105,37 @@ async function bootstrap() {
 
     app.useGlobalFilters(new AllExceptionsFilter());
 
+    // Configure Swagger/OpenAPI documentation
+    const config = new DocumentBuilder()
+        .setTitle('SSO Test Backend API')
+        .setDescription(
+            'Comprehensive Single Sign-On (SSO) testing backend API with support for OIDC and SAML authentication flows',
+        )
+        .setVersion('1.0.0')
+        .addBearerAuth()
+        .addTag('Authentication', 'User signup, login, logout, and token refresh endpoints')
+        .addTag('OIDC SSO', 'OpenID Connect authentication flow endpoints')
+        .addTag('SAML SSO', 'SAML 2.0 authentication flow endpoints')
+        .addTag('Session', 'Session management and debug endpoints')
+        .addTag('Dashboard', 'User dashboard and configuration management')
+        .build();
+
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document, {
+        swaggerOptions: {
+            persistAuthorization: true,
+            tagsSorter: 'alpha',
+            operationsSorter: 'method',
+        },
+    });
+
     const port = appConfigService.app.port ?? 3000;
 
     await app.listen(port);
 
-    logger.log(`🚀 SCIM Client Service running on http://localhost:${port}`);
+    logger.log(`🚀 SSO Test Backend running on http://localhost:${port}`);
 
-    logger.log(`📚 API Documentation: http://0.0.0.0:${port}/docs`);
+    logger.log(`📚 API Documentation: http://localhost:${port}/api/docs`);
 }
 bootstrap().catch((error) => {
     console.log(`Error: ${JSON.stringify(error)}`);

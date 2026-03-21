@@ -1,4 +1,15 @@
 import {
+    ApiBadRequestResponse,
+    ApiBody,
+    ApiCreatedResponse,
+    ApiOkResponse,
+    ApiOperation,
+    ApiResponse,
+    ApiTags,
+    ApiBearerAuth,
+    ApiHeader,
+} from '@nestjs/swagger';
+import {
     Body,
     Controller,
     Get,
@@ -18,14 +29,42 @@ import { SignupDto } from './dto/signup.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { AuthResponse, UserResponse } from './interfaces/auth-response.interface';
 
+@ApiTags('Authentication')
 @Controller('api/auth')
 export class AuthController {
     constructor(private readonly authService: AuthService) {}
 
-    /**
-     * POST /api/auth/signup
-     * Register a new user
-     */
+    @ApiOperation({
+        summary: 'Register a new user',
+        description: 'Create a new user account with email and password',
+    })
+    @ApiBody({
+        type: SignupDto,
+        description: 'User registration information',
+    })
+    @ApiCreatedResponse({
+        description: 'User successfully registered',
+        schema: {
+            properties: {
+                user: { $ref: '#/components/schemas/UserResponse' },
+                accessToken: { type: 'string' },
+            },
+        },
+    })
+    @ApiBadRequestResponse({
+        description: 'Invalid input (validation failed)',
+        schema: {
+            example: {
+                message: ['email must be an email'],
+                error: 'Bad Request',
+                statusCode: 400,
+            },
+        },
+    })
+    @ApiResponse({
+        status: 409,
+        description: 'User with this email already exists',
+    })
     @Post('signup')
     @HttpCode(HttpStatus.CREATED)
     @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
@@ -46,10 +85,30 @@ export class AuthController {
         return response;
     }
 
-    /**
-     * POST /api/auth/login
-     * Authenticate user and get tokens
-     */
+    @ApiOperation({
+        summary: 'Authenticate user',
+        description: 'Login with email and password to receive access token',
+    })
+    @ApiBody({
+        type: LoginDto,
+        description: 'User login credentials',
+    })
+    @ApiOkResponse({
+        description: 'User successfully authenticated',
+        schema: {
+            properties: {
+                user: { $ref: '#/components/schemas/UserResponse' },
+                accessToken: { type: 'string' },
+            },
+        },
+    })
+    @ApiBadRequestResponse({
+        description: 'Invalid credentials or validation failed',
+    })
+    @ApiResponse({
+        status: 401,
+        description: 'Invalid email or password',
+    })
     @Post('login')
     @HttpCode(HttpStatus.OK)
     @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
@@ -70,17 +129,33 @@ export class AuthController {
         return response;
     }
 
-    /**
-     * POST /api/auth/refresh
-     * Refresh access token using refresh token from cookie
-     */
+    @ApiOperation({
+        summary: 'Refresh access token',
+        description: 'Get a new access token using the refresh token from the httpOnly cookie',
+    })
+    @ApiHeader({
+        name: 'Cookie',
+        description: 'Must include refreshToken cookie from login/signup response',
+        required: true,
+    })
+    @ApiOkResponse({
+        description: 'New access token generated successfully',
+        schema: {
+            properties: {
+                accessToken: { type: 'string' },
+            },
+        },
+    })
+    @ApiResponse({
+        status: 401,
+        description: 'Refresh token not found or invalid',
+    })
     @Post('refresh')
     @HttpCode(HttpStatus.OK)
     async refresh(
         @Req() req: Request,
         @Res({ passthrough: true }) res: Response,
     ): Promise<{ accessToken: string }> {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
         const refreshToken = req.cookies?.refreshToken as string | undefined;
 
         if (!refreshToken) {
@@ -92,10 +167,18 @@ export class AuthController {
         return result;
     }
 
-    /**
-     * POST /api/auth/logout
-     * Clear refresh token cookie
-     */
+    @ApiOperation({
+        summary: 'User logout',
+        description: 'Clear the refresh token cookie and logout the user',
+    })
+    @ApiOkResponse({
+        description: 'User successfully logged out',
+        schema: {
+            properties: {
+                message: { type: 'string', example: 'Logged out successfully' },
+            },
+        },
+    })
     @Post('logout')
     @HttpCode(HttpStatus.OK)
     logout(@Res({ passthrough: true }) res: Response): { message: string } {
@@ -110,10 +193,19 @@ export class AuthController {
         return { message: 'Logged out successfully' };
     }
 
-    /**
-     * GET /api/auth/me
-     * Get current authenticated user
-     */
+    @ApiOperation({
+        summary: 'Get current user',
+        description: 'Retrieve the authenticated user information from JWT token',
+    })
+    @ApiBearerAuth()
+    @ApiOkResponse({
+        description: 'Current user information',
+        type: UserResponse,
+    })
+    @ApiResponse({
+        status: 401,
+        description: 'Unauthorized - no valid JWT token provided',
+    })
     @Get('me')
     @UseGuards(JwtAuthGuard)
     async getCurrentUser(@Req() req: Request): Promise<UserResponse> {

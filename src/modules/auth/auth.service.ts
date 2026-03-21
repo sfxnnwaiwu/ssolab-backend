@@ -6,7 +6,7 @@ import {
     UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
+import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { LoginDto } from './dto/login.dto';
@@ -29,20 +29,17 @@ export class AuthService {
     async signup(signupDto: SignupDto): Promise<AuthResponse> {
         const { email, password, name } = signupDto;
 
-        // Check if user already exists
         const existingUser = await this.userRepository.findOne({ where: { email } });
         if (existingUser) {
             throw new ConflictException('User with this email already exists');
         }
 
-        // Create new user
         const user = this.userRepository.create({
             email,
             name,
             password,
         });
 
-        // Hash password
         await user.hashPassword();
 
         try {
@@ -51,7 +48,6 @@ export class AuthService {
             throw new InternalServerErrorException('Failed to create user');
         }
 
-        // Generate tokens
         const tokens = this.generateTokens(user);
 
         return {
@@ -138,18 +134,24 @@ export class AuthService {
             email: user.email,
         };
 
-        const accessEx = this.configService.get<string>('JWT_ACCESS_TOKEN_EXPIRATION') || '15m';
-        const refreshEx = this.configService.get<string>('JWT_REFRESH_TOKEN_EXPIRATION') || '7d';
+        const accessEx = parseInt(
+            this.configService.get<string>('JWT_ACCESS_TOKEN_EXPIRATION') || '15',
+            10,
+        );
+        const refreshEx = parseInt(
+            this.configService.get<string>('JWT_REFRESH_TOKEN_EXPIRATION') || '7',
+            10,
+        );
 
-        // Use sign with proper typing - using any to bypass strict JWT typing
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-        const accessToken = this.jwtService.sign(payload, {
+        const accessTokenOptions: JwtSignOptions = {
             expiresIn: accessEx,
-        } as any);
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-        const refreshToken = this.jwtService.sign(payload, {
+        };
+        const accessToken = this.jwtService.sign(payload, accessTokenOptions);
+
+        const refreshTokenOptions: JwtSignOptions = {
             expiresIn: refreshEx,
-        } as any);
+        };
+        const refreshToken = this.jwtService.sign(payload, refreshTokenOptions);
 
         return { accessToken, refreshToken };
     }
@@ -163,10 +165,13 @@ export class AuthService {
             email: user.email,
         };
 
-        const accessEx = this.configService.get<string>('JWT_ACCESS_TOKEN_EXPIRATION') || '15m';
+        const accessEx = parseInt(
+            this.configService.get<string>('JWT_ACCESS_TOKEN_EXPIRATION') || '15',
+            10,
+        );
 
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-        return this.jwtService.sign(payload, { expiresIn: accessEx } as any);
+        const accessTokenOptions: JwtSignOptions = { expiresIn: accessEx };
+        return this.jwtService.sign(payload, accessTokenOptions);
     }
 
     /**

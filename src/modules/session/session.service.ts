@@ -18,6 +18,9 @@ export class SessionService {
 
     private readonly RESULT_PREFIX = 'auth:result:';
     private readonly RESULT_TTL = 300; // 5 minutes
+    private readonly OIDC_LOGOUT_PREFIX = 'oidc:logout:';
+    private readonly SAML_LOGOUT_PREFIX = 'saml:logout:';
+    private readonly LOGOUT_SESSION_TTL = 1800; // 30 minutes for logout session data
 
     constructor(@Inject(CACHE_MANAGER) private cacheManager: Cache) {}
 
@@ -173,5 +176,117 @@ export class SessionService {
         // await this.cacheManager.del(`${this.RESULT_PREFIX}${resultId}`);
 
         return JSON.parse(cached as string);
+    }
+
+    /**
+     * Store OIDC logout session data (id_token, end_session_endpoint, etc.)
+     */
+    async storeOidcLogoutSession(
+        sessionId: string,
+        idToken: string,
+        endSessionEndpoint: string,
+        configId: string,
+    ): Promise<void> {
+        const logoutData = {
+            idToken,
+            endSessionEndpoint,
+            configId,
+            storedAt: new Date().toISOString(),
+        };
+
+        const key = `${this.OIDC_LOGOUT_PREFIX}${sessionId}`;
+        await this.cacheManager.set(
+            key,
+            JSON.stringify(logoutData),
+            this.LOGOUT_SESSION_TTL * 1000,
+        );
+
+        this.logger.log(`Stored OIDC logout session data for session ${sessionId}`);
+    }
+
+    /**
+     * Retrieve OIDC logout session data
+     */
+    async getOidcLogoutSession(
+        sessionId: string,
+    ): Promise<{ idToken: string; endSessionEndpoint: string; configId: string } | null> {
+        const key = `${this.OIDC_LOGOUT_PREFIX}${sessionId}`;
+        const cached = await this.cacheManager.get<string>(key);
+
+        if (!cached) {
+            this.logger.warn(`OIDC logout session data not found for session ${sessionId}`);
+            return null;
+        }
+
+        return JSON.parse(cached);
+    }
+
+    /**
+     * Clear OIDC logout session data
+     */
+    async clearOidcLogoutSession(sessionId: string): Promise<void> {
+        const key = `${this.OIDC_LOGOUT_PREFIX}${sessionId}`;
+        await this.cacheManager.del(key);
+        this.logger.log(`Cleared OIDC logout session data for session ${sessionId}`);
+    }
+
+    /**
+     * Store SAML logout session data (sessionIndex, nameId, nameIdFormat, sloUrl)
+     */
+    async storeSamlLogoutSession(
+        sessionId: string,
+        sessionIndex: string,
+        nameId: string,
+        nameIdFormat: string,
+        sloUrl: string,
+        configId: string,
+    ): Promise<void> {
+        const logoutData = {
+            sessionIndex,
+            nameId,
+            nameIdFormat,
+            sloUrl,
+            configId,
+            storedAt: new Date().toISOString(),
+        };
+
+        const key = `${this.SAML_LOGOUT_PREFIX}${sessionId}`;
+        await this.cacheManager.set(
+            key,
+            JSON.stringify(logoutData),
+            this.LOGOUT_SESSION_TTL * 1000,
+        );
+
+        this.logger.log(`Stored SAML logout session data for session ${sessionId}`);
+    }
+
+    /**
+     * Retrieve SAML logout session data
+     */
+    async getSamlLogoutSession(sessionId: string): Promise<{
+        sessionIndex: string;
+        nameId: string;
+        nameIdFormat: string;
+        sloUrl: string;
+        configId: string;
+    } | null> {
+        const key = `${this.SAML_LOGOUT_PREFIX}${sessionId}`;
+        const cached = await this.cacheManager.get<string>(key);
+
+        if (!cached) {
+            this.logger.warn(`SAML logout session data not found for session ${sessionId}`);
+            return null;
+        }
+
+        return JSON.parse(cached);
+    }
+
+    /**
+     * Clear SAML logout session data
+     */
+    async clearSamlLogoutSession(sessionId: string): Promise<void> {
+        const key = `${this.SAML_LOGOUT_PREFIX}${sessionId}`;
+        await this.cacheManager.del(key);
+        this.logger.log(`Cleared SAML logout session data for session ${sessionId}`);
     }
 }

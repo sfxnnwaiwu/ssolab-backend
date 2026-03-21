@@ -58,7 +58,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         };
     }
 
-    private getErrorType(status: number): string {
+    private getErrorType(status: HttpStatus): string {
         switch (status) {
             case HttpStatus.BAD_REQUEST:
                 return 'bad_request';
@@ -75,7 +75,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         }
     }
 
-    private getErrorTitle(status: number): string {
+    private getErrorTitle(status: HttpStatus): string {
         switch (status) {
             case HttpStatus.BAD_REQUEST:
                 return 'Bad Request';
@@ -98,14 +98,17 @@ export class AllExceptionsFilter implements ExceptionFilter {
             if (typeof response === 'string') {
                 return response;
             }
+
             if (typeof response === 'object' && 'message' in response) {
-                const message = (response as any).message;
-                return Array.isArray(message) ? message.join(', ') : message;
+                const message = response.message;
+                return Array.isArray(message) ? message.join(', ') : JSON.stringify(response);
             }
         }
+
         if (exception instanceof Error) {
             return exception.message;
         }
+
         return 'An unexpected error occurred';
     }
 
@@ -116,7 +119,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         return String(exception);
     }
 
-    private getTroubleshootingSteps(status: number): string[] {
+    private getTroubleshootingSteps(status: HttpStatus): string[] {
         switch (status) {
             case HttpStatus.BAD_REQUEST:
                 return [
@@ -155,7 +158,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         }
     }
 
-    private logError(exception: unknown, request: Request, status: number) {
+    private logError(exception: unknown, request: Request, status: HttpStatus) {
         const errorLog = {
             timestamp: new Date().toISOString(),
             method: request.method,
@@ -167,9 +170,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
             ...(exception instanceof Error && { stack: exception.stack }),
         };
 
-        if (status >= 500) {
+        if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
             this.logger.error(errorLog);
-        } else if (status >= 400) {
+        } else if (status >= HttpStatus.BAD_REQUEST) {
             this.logger.warn(errorLog);
         } else {
             this.logger.log(errorLog);
