@@ -7,6 +7,7 @@ import {
     PrimaryGeneratedColumn,
     UpdateDateColumn,
 } from 'typeorm';
+import { PasswordResetToken } from './password-reset-token.entity';
 
 @Entity('users')
 export class User {
@@ -36,6 +37,9 @@ export class User {
 
     @OneToMany('TestResult', 'user')
     testResults: any[];
+
+    @OneToMany(() => PasswordResetToken, (passwordResetToken) => passwordResetToken.user)
+    passwordResetTokens: PasswordResetToken[];
 
     /**
      * Hash password before inserting

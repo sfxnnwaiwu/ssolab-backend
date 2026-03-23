@@ -38,6 +38,7 @@
         "@nestjs/throttler": "^6.5.0",
         "@nestjs/typeorm": "^11.0.0",
         "@node-saml/node-saml": "^5.1.0",
+        "@sendgrid/mail": "^8.1.6",
         "@types/bcrypt": "^6.0.0",
         "@types/cookie-parser": "^1.4.10",
         "@types/express-session": "^1.18.2",

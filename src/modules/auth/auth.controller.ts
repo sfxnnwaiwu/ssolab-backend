@@ -8,6 +8,7 @@ import {
     ApiTags,
     ApiBearerAuth,
     ApiHeader,
+    ApiParam,
 } from '@nestjs/swagger';
 import {
     Body,
@@ -21,9 +22,15 @@ import {
     UseGuards,
     UsePipes,
     ValidationPipe,
+    Param,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
+import {
+    ChangePasswordDto,
+    RequestPasswordResetDto,
+    ResetPasswordDto,
+} from './dto/password-reset.dto';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -212,6 +219,111 @@ export class AuthController {
         // User is attached by JwtAuthGuard
         const user = req.user as { id: string; email: string };
         return this.authService.getCurrentUser(user.id);
+    }
+
+    @ApiOperation({
+        summary: 'Request password reset',
+        description: 'Send a password reset link to the user email address',
+    })
+    @ApiBody({ type: RequestPasswordResetDto })
+    @ApiOkResponse({
+        description: 'Password reset link sent (or generic message for security)',
+        schema: {
+            properties: {
+                message: { type: 'string' },
+            },
+        },
+    })
+    @ApiBadRequestResponse({
+        description: 'Invalid email format',
+    })
+    @Post('request-password-reset')
+    @HttpCode(HttpStatus.OK)
+    @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
+    async requestPasswordReset(@Body() dto: RequestPasswordResetDto): Promise<{ message: string }> {
+        return this.authService.requestPasswordReset(dto);
+    }
+
+    @ApiOperation({
+        summary: 'Validate password reset token',
+        description: 'Check if a password reset token is valid and not expired',
+    })
+    @ApiParam({
+        name: 'token',
+        description: 'Password reset token',
+        example: 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5',
+    })
+    @ApiOkResponse({
+        description: 'Token validation result',
+        schema: {
+            properties: {
+                valid: { type: 'boolean' },
+                email: { type: 'string', description: 'Email if token is valid' },
+            },
+        },
+    })
+    @Get('validate-reset-token/:token')
+    @HttpCode(HttpStatus.OK)
+    async validateResetToken(
+        @Param('token') token: string,
+    ): Promise<{ valid: boolean; email?: string }> {
+        return this.authService.validateResetToken(token);
+    }
+
+    @ApiOperation({
+        summary: 'Reset password',
+        description: 'Reset user password using a valid reset token',
+    })
+    @ApiBody({ type: ResetPasswordDto })
+    @ApiOkResponse({
+        description: 'Password reset successful',
+        schema: {
+            properties: {
+                message: { type: 'string' },
+            },
+        },
+    })
+    @ApiBadRequestResponse({
+        description: 'Invalid token, weak password, or passwords do not match',
+    })
+    @Post('reset-password')
+    @HttpCode(HttpStatus.OK)
+    @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
+    async resetPassword(@Body() dto: ResetPasswordDto): Promise<{ message: string }> {
+        return this.authService.resetPassword(dto);
+    }
+
+    @ApiOperation({
+        summary: 'Change password',
+        description: 'Change password for authenticated user',
+    })
+    @ApiBearerAuth()
+    @ApiBody({ type: ChangePasswordDto })
+    @ApiOkResponse({
+        description: 'Password changed successfully',
+        schema: {
+            properties: {
+                message: { type: 'string' },
+            },
+        },
+    })
+    @ApiBadRequestResponse({
+        description: 'Invalid current password or weak new password',
+    })
+    @ApiResponse({
+        status: 401,
+        description: 'Unauthorized - no valid JWT token',
+    })
+    @Post('change-password')
+    @HttpCode(HttpStatus.OK)
+    @UseGuards(JwtAuthGuard)
+    @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
+    async changePassword(
+        @Req() req: Request,
+        @Body() dto: ChangePasswordDto,
+    ): Promise<{ message: string }> {
+        const user = req.user as { id: string; email: string };
+        return this.authService.changePassword(user.id, dto);
     }
 
     /**
